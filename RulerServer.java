@@ -1,12 +1,13 @@
 import java.io.*;
 import java.net.*;
+import java.rmi.Naming;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Random;
-import java.util.Scanner;
 import java.util.TimeZone;
+import java.math.BigInteger;
 
 public class RulerServer {
 
@@ -42,9 +43,7 @@ public class RulerServer {
         }
     
     }
-    //I need a function that is a thread, keep listening on the input from keyboard if ctrl c then break the loop, or 'q'
-    //I need a function that will break the loop after timeout
-    // encrypt, hash communication between client and server
+
     private static class ClientHandler extends Thread {
         private Socket socket;
         private BufferedReader in;
@@ -57,7 +56,6 @@ public class RulerServer {
                 this.out = new PrintWriter(socket.getOutputStream(), true);
             } catch (Exception e) {
                 e.printStackTrace();
-                // TODO: handle exception
             }
         }
 
@@ -141,32 +139,23 @@ public class RulerServer {
 
         }
 
-        private String handleOption(String option) throws Exception {
-            int optionNumber;
 
-            try {// string to integer if not integer will "Invalid option"
-                
-                optionNumber = Integer.parseInt(option);
-            } catch (NumberFormatException e) {
-                return "Invalid option";
-            }
-            // System.out.println(optionNumber);
+        private String handleOption(String option) throws Exception {
             String message;
-            // try {
             System.out.println(option);
             switch (option) {
                 case "1":
                     return "Server time (GMT+8): " + getCurrentTimeGMT8();
                 case "2":
-                    // System.out.println(optionNumber+"222222222");
                     return "Your port number is: " + socket.getPort();
-                // Placeholder for other options; they would require additional implementation
                 case "3":
                     message = receive();
                     return broadcast(message) ? "Broadcast successful" : "Broadcast failed";
                 case "4":
                     message = receive();
                     return multicast(message) ? "Multicast successful" : "Multicast failed";
+                case "5":
+                    return String.valueOf(handleRMI());
                 case "6":
                     int result = playGame();
                     if(result == 1){
@@ -177,12 +166,8 @@ public class RulerServer {
                         return "You know... failing in this kind of game... Divide and Conquer";
                     }
                 default:
-                    // System.out.println("Invalid option is received ");
                     return "Invalid option";
             }
-            // } catch (Exception e) {
-            // throw e;
-            // }
 
         }
 
@@ -202,6 +187,45 @@ public class RulerServer {
             return encrypted.toString();
         }
 
+        private String handleRMI() {
+            try {
+                // Lookup the remote RMI server
+                RMIInterface rmiServer = (RMIInterface) Naming.lookup("rmi://localhost:20014/RMIServer");
+
+                // Ask client to choose RMI operation: addition or password complexity
+                send("Choose operation: 1 for Add, 2 for Password Complexity");
+                String operation = receive();
+
+                if ("1".equals(operation)) {
+                    // Prompt user for input numbers for addition
+                    try{
+                        int num1 = Integer.parseInt(receive());
+    
+                        int num2 = Integer.parseInt(receive());
+                        int sum = rmiServer.addNumbers(num1, num2);
+                        System.out.println(sum);
+                        return "Sum of " + num1 + " and " + num2 + " is: " + sum;
+                    }catch(NumberFormatException e){
+                        return "Invalid number input please try again";
+                    }
+                } else if ("2".equals(operation)) {
+                    // Prompt user for password input
+                    send("Enter password:");
+                    String password = receive();
+
+                    // Call RMI method for password complexity
+                    BigInteger complexity = rmiServer.calculatePasswordComplexity(password);
+                    return "Password complexity is: " + complexity;
+                } else {
+                    return "Invalid operation selected.";
+                }
+
+            } catch (Exception e) {
+                e.printStackTrace();
+                return "RMI operation failed.";
+            }
+        }
+
         private static String decrypt(String message) {
             // Caesar Cipher with shift -3
             StringBuilder decrypted = new StringBuilder();
@@ -211,6 +235,7 @@ public class RulerServer {
             return decrypted.toString();
         }
 
+        
         private static String generateHash(String message) throws NoSuchAlgorithmException {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] hash = digest.digest(message.getBytes());
@@ -268,12 +293,14 @@ public class RulerServer {
         //     }
         // }
 
-        private static boolean multicast(String message) throws UnknownHostException, SocketException, IOException {
+        private static boolean multicast(String message) throws UnknownHostException, SocketException, IOException, NoSuchAlgorithmException {
             // create the socket with multicast port 3014
             DatagramSocket multicastSocket = new DatagramSocket();
-
+            String encryptedMessage = encrypt(message);
+            String MessageHash = generateHash(message);
+            String sendString = encryptedMessage + "|" + MessageHash;
             InetAddress multicastGroup = InetAddress.getByName("224.0.0.14");
-            byte[] buf = message.getBytes();
+            byte[] buf = sendString.getBytes();
 
             DatagramPacket multicastPacket = new DatagramPacket(buf, buf.length, multicastGroup, MULTICAST_SERVER_PORT);
 
@@ -283,11 +310,14 @@ public class RulerServer {
             return true;
         }
 
-        private static boolean broadcast(String message) throws UnknownHostException, SocketException, IOException {
+        private static boolean broadcast(String message) throws UnknownHostException, SocketException, IOException, NoSuchAlgorithmException {
             DatagramSocket broadcastSocket = new DatagramSocket();
             broadcastSocket.setBroadcast(true);
             InetAddress broadcastAddr = InetAddress.getByName("255.255.255.255");
-            byte[] buf = message.getBytes();
+            String encryptedMessage = encrypt(message);
+            String MessageHash = generateHash(message);
+            String sendString = encryptedMessage + "|" + MessageHash;
+            byte[] buf = sendString.getBytes();
 
             DatagramPacket broadcastPacket = new DatagramPacket(buf, buf.length, broadcastAddr, BROADCAST_SERVER_PORT);
 

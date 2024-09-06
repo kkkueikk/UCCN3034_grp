@@ -1,8 +1,11 @@
 import java.io.*;
 import java.net.*;
+import java.rmi.Naming;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Scanner;
+import java.util.InputMismatchException;
+
 
 public class RulerClient {
     
@@ -32,11 +35,7 @@ public class RulerClient {
                 menuOption = scanner.nextLine(); // Encrypt user input
                 // send(menuOption); // Send encrypted option to server
                 System.out.println("You enter: "+menuOption);
-                // int optionNumber;
-                // response = receive();
-                // string to integer if not integer will "Invalid option"
-                // optionNumber = Integer.parseInt(menuOption);
-                // if(optionNumber >=1 && optionNumber<1)
+
                 String message;
                 switch (menuOption) {
                     case "1":
@@ -57,17 +56,34 @@ public class RulerClient {
                         System.out.println("Server Response: " + response);
                         break;
                     case "5":
+                        send(menuOption);
+                        System.out.println(receive());
+                        String operation = scanner.nextLine();
+                        send(operation); // send operation to server
+
+                        if ("1".equals(operation)) {
+                            int num1 = getIntFromUser("Enter first number:");
+                            send(String.valueOf(num1)); 
+                            int num2 = getIntFromUser("Enter second number:");
+                            send(String.valueOf(num2)); 
+
+                        } else if ("2".equals(operation)) {
+                            System.out.println(receive());
+                            String password = scanner.next();
+                            send(password); // send password to server
+                        }
+                        receive();
+                        break;
                     case "6":
                         send(menuOption); // Send the "6" option to start the game on the server
                         System.out.println("Guess the number between 1 and 100: ");
 
                         boolean gameOver = false;
                         while (!gameOver) {
-                            String guess = scanner.nextLine(); // Get the user's guess
-                            send(guess); // Send the guess to the server
+                            int guess = getIntFromUser("Number?"); // Get the user's guess
+                            send(String.valueOf(guess)); // Send the guess to the server
 
                             response = receive(); // Receive the server's response
-                            System.out.println("Server Response: " + response);
 
                             // Check if the game is over
                             if (response.contains("Congrats") || response.contains("failing")) {
@@ -144,7 +160,7 @@ public class RulerClient {
     private static boolean verifyHash(String decryptedMessage, String receivedHash) {
         try {
             String localHash = generateHash(decryptedMessage);
-            return localHash.equals(receivedHash);
+            return localHash.equals(receivedHash); 
         } catch (NoSuchAlgorithmException e) {
             System.out.println("Hash verification error: " + e.getMessage());
             e.printStackTrace();
@@ -174,13 +190,29 @@ public class RulerClient {
         }
     }
 
+    private int getIntFromUser(String prompt) {
+        Scanner scanner = new Scanner(System.in);
+        int result = 0;
+        boolean valid = false;
+        
+        while (!valid) {
+            System.out.println(prompt);
+            try {
+                result = scanner.nextInt();
+                valid = true;
+            } catch (InputMismatchException e) {
+                System.out.println("Invalid input. Please enter an integer.");
+                scanner.next(); // Clear the invalid input
+            }
+        }
+        return result;
+    }
+
     private int send(String message) {
         try {
             String encryptedString = encrypt(message);
             String hashedString = generateHash(message);
-            // System.out.println("decrypted message: " + decryptedResponse);
-            System.out.println("encrypted message: " + encryptedString);
-            System.out.println("response message: " + hashedString);
+
             out.println(encryptedString);
             out.println(hashedString);
             out.flush();
