@@ -37,8 +37,9 @@ class BroadcastReceiver implements Runnable {
 		try {
 			while (true) {
 				// Create a UDP socket that listens on port 3015
-				brdSock = new DatagramSocket(BROADCAST_SERVER_PORT);
+				brdSock= new DatagramSocket(null);
 				brdSock.setReuseAddress(true);
+				brdSock.bind(new InetSocketAddress(BROADCAST_SERVER_PORT));
 
 				// Only receive, thus create a datagram packet to receive
 				packet = new DatagramPacket(buf, buf.length);
