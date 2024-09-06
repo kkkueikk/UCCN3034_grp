@@ -253,7 +253,7 @@ public class RulerServer {
             int max_attempts = 5;
             Random random = new Random();
             int targetNumber = random.nextInt(100) + 1;
-            int attempts = 0;
+            int attempts = 1;
             String received;
 
             while (attempts < max_attempts) {
@@ -263,9 +263,9 @@ public class RulerServer {
                     int guess = Integer.parseInt(received);
 
                     if (guess < targetNumber) {
-                        send("Try again - Low");
+                        send("Try again - too Low");
                     } else if (guess > targetNumber) {
-                        send("Try again - High");
+                        send("Try again - too High");
                     } else {
                         return 1;
                     }
