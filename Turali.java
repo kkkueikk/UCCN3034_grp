@@ -1,5 +1,6 @@
 import java.io.*;
 import java.net.*;
+import java.nio.charset.StandardCharsets;
 import java.security.*;
 
 public class Turali {
@@ -23,7 +24,7 @@ public class Turali {
 
 // create a class for listening to broadcast
 class BroadcastReceiver implements Runnable {
-	private static final int BROADCAST_SERVER_PORT = 3015;
+	private static final int BROADCAST_SERVER_PORT = 4014;
 	private static final String HASH_ALGORITHM = "SHA-256";
 	private static final int SHIFT = 3; // Caesar Cipher shift
 
@@ -35,16 +36,19 @@ class BroadcastReceiver implements Runnable {
 		String payload = "";
 
 		try {
-			while (true) {
-				// Create a UDP socket that listens on port 3015
-				brdSock= new DatagramSocket(null);
-				brdSock.setReuseAddress(true);
-				brdSock.bind(new InetSocketAddress(BROADCAST_SERVER_PORT));
+			//move creation of datagramSocket from inside the while loop
+			//to outside - no need to open and close socket for each message received
+			//this will only give delays and missing of incoming packets
+			brdSock = new DatagramSocket(null);
+			brdSock.setReuseAddress(true); //allow multiple sockets to bind to the same port
+			brdSock.setSoTimeout(1200000); // set timeout to 2 mins
+			brdSock.bind(new InetSocketAddress(BROADCAST_SERVER_PORT));
 
-				// Only receive, thus create a datagram packet to receive
+			while (true) {
+				//receive only, create a datagram packet to receive
 				packet = new DatagramPacket(buf, buf.length);
 
-				// Wait for the message sent to port 3015
+				//wait for the message to be sent here
 				brdSock.receive(packet);
 
 				// Convert byte to string
@@ -53,11 +57,10 @@ class BroadcastReceiver implements Runnable {
 				// Print the string to terminal
 				System.out.println("\nWar channel: " + payload);
 
-				// Process the received message
+				// Process the received message (decrypt, verify)
 				processMessage(payload);
 
 				// Close socket
-				brdSock.close();
 			}
 		} catch (UnknownHostException u) {
 			System.err.println(u);
@@ -65,13 +68,17 @@ class BroadcastReceiver implements Runnable {
 			System.err.println(i);
 		} catch (Exception e) {
 			System.err.println(e);
+		}finally{
+			if (brdSock != null && !brdSock.isClosed()) {
+				brdSock.close(); // close socket when done
+			}
 		}
 	}
 
 	private void processMessage(String payload) {
 		try {
 			// Split the message and hash
-			String[] parts = payload.split("\\|");
+			String[] parts = payload.split("\\^o\\^");
 			if (parts.length != 2) {
 				System.out.println("Invalid message format.");
 				return;
@@ -83,9 +90,8 @@ class BroadcastReceiver implements Runnable {
 			String decryptedMessage = decrypt(encryptedMessage);
 
 			// Verify the hash
-			boolean isValid = verifyHash(decryptedMessage, receivedHash);
-			if (isValid) {
-				System.out.println("Received valid message: " + decryptedMessage);
+			if (verifyHash(decryptedMessage, receivedHash)) {
+				System.out.println(decryptedMessage);
 			} else {
 				System.out.println("Received invalid message.");
 			}
@@ -105,7 +111,7 @@ class BroadcastReceiver implements Runnable {
 
 	private String generateHash(String message) throws NoSuchAlgorithmException {
 		MessageDigest digest = MessageDigest.getInstance(HASH_ALGORITHM);
-		byte[] hash = digest.digest(message.getBytes());
+		byte[] hash = digest.digest(message.getBytes(StandardCharsets.UTF_8));
 		StringBuilder hexString = new StringBuilder();
 		for (byte b : hash) {
 			String hex = Integer.toHexString(0xff & b);
@@ -116,14 +122,13 @@ class BroadcastReceiver implements Runnable {
 		return hexString.toString();
 	}
 
-	private boolean verifyHash(String decryptedMessage, String receivedHash) {
+	private boolean verifyHash(String decryptedMessage, String receivedHash) throws NoSuchAlgorithmException {
 		try {
-			String localHash = generateHash(decryptedMessage);
+			String localHash = generateHash(decryptedMessage.trim());
 			return localHash.equals(receivedHash);
 		} catch (NoSuchAlgorithmException e) {
-			System.out.println("Hash verification error: " + e.getMessage());
-			e.printStackTrace();
-			return false;
+			System.out.println("Hash verification error! " + e.getMessage());
+			throw e;
 		}
 	}
 }
@@ -143,15 +148,14 @@ class MulticastReceiver implements Runnable {
 		String payload = "";
 
 		try {
+			// create a socket with group address and port
+			mcSocket = new MulticastSocket(MULTICAST_SERVER_PORT);
+			// add the multicast socket as a member of group address & enable reuse socket
+			mcSocket.setReuseAddress(true);
+			mcSocket.setSoTimeout(1200000);
+			group = InetAddress.getByName(MULTICAST_GROUP_ADDRESS);
+			mcSocket.joinGroup(group);
 			while (true) {
-				//create a socket with group address and port
-				mcSocket = new MulticastSocket(MULTICAST_SERVER_PORT);
-				group = InetAddress.getByName(MULTICAST_GROUP_ADDRESS);
-
-				//add the multicast socket as a member of group address & enable reuse socket
-				mcSocket.joinGroup(group);
-				mcSocket.setReuseAddress(true);
-
 				//create packet to store payload
 				rcvPacket = new DatagramPacket(buf, buf.length);
 
@@ -168,8 +172,6 @@ class MulticastReceiver implements Runnable {
 				processMessage(payload);
 
 				// Leave group, close socket
-				mcSocket.leaveGroup(group);
-				mcSocket.close();
 			}
 		} catch (UnknownHostException u) {
 			System.err.println(u);
@@ -177,13 +179,24 @@ class MulticastReceiver implements Runnable {
 			System.err.println(i);
 		} catch (Exception e) {
 			System.err.println(e);
+		}finally{
+			try {
+				if (mcSocket != null && !mcSocket.isClosed()) {
+					mcSocket.leaveGroup(group);
+					mcSocket.close();
+				}
+			} catch (Exception e) {
+				mcSocket.close();
+				System.err.println(e);
+			}
+
 		}
 	}
 
 	private void processMessage(String payload) {
 		try {
 			// Split the message and hash
-			String[] parts = payload.split("\\|");
+			String[] parts = payload.split("\\^o\\^");
 			if (parts.length != 2) {
 				System.out.println("Invalid message format.");
 				return;
@@ -195,9 +208,8 @@ class MulticastReceiver implements Runnable {
 			String decryptedMessage = decrypt(encryptedMessage);
 
 			// Verify the hash
-			boolean isValid = verifyHash(decryptedMessage, receivedHash);
-			if (isValid) {
-				System.out.println("Received valid message: " + decryptedMessage);
+			if (verifyHash(decryptedMessage, receivedHash)) {
+				System.out.println(decryptedMessage);
 			} else {
 				System.out.println("Received invalid message.");
 			}
@@ -216,7 +228,7 @@ class MulticastReceiver implements Runnable {
 
 	private String generateHash(String message) throws NoSuchAlgorithmException {
 		MessageDigest digest = MessageDigest.getInstance(HASH_ALGORITHM);
-		byte[] hash = digest.digest(message.getBytes());
+		byte[] hash = digest.digest(message.trim().getBytes(StandardCharsets.UTF_8));
 		StringBuilder hexString = new StringBuilder();
 		for (byte b : hash) {
 			String hex = Integer.toHexString(0xff & b);
@@ -227,14 +239,13 @@ class MulticastReceiver implements Runnable {
 		return hexString.toString();
 	}
 
-	private boolean verifyHash(String decryptedMessage, String receivedHash) {
+	private boolean verifyHash(String decryptedMessage, String receivedHash) throws NoSuchAlgorithmException {
 		try {
-			String localHash = generateHash(decryptedMessage);
+			String localHash = generateHash(decryptedMessage.trim());
 			return localHash.equals(receivedHash);
 		} catch (NoSuchAlgorithmException e) {
-			System.out.println("Hash verification error: " + e.getMessage());
-			e.printStackTrace();
-			return false;
+			System.out.println("Hash verification error! " + e.getMessage());
+			throw e;
 		}
 	}
 }

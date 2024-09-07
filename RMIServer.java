@@ -55,7 +55,7 @@ public class RMIServer extends UnicastRemoteObject implements RMIInterface {
             // Create RMI registry on port 20014
             try {
                 java.rmi.registry.LocateRegistry.createRegistry(20014);
-                System.out.println("RMI Registry created on port 20014");
+                System.out.println("'RMI Registry created on port 20014'");
             } catch (RemoteException e) {
                 System.out.println("RMI Registry already running on port 20014");
             }

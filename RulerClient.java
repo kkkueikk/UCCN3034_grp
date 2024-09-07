@@ -1,5 +1,6 @@
 import java.io.*;
 import java.net.*;
+import java.nio.charset.StandardCharsets;
 import java.rmi.Naming;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -11,10 +12,24 @@ public class RulerClient {
     
     private static final String SERVER_ADDRESS = "localhost";
     private static final int SERVER_PORT = 2014; // Example for Group ID 20
-    private PrintWriter out;
-    private BufferedReader in;
-
+    private static PrintWriter out;
+    private static BufferedReader in;
+    private static Socket socket;
     public static void main(String[] args) {
+        // Add shutdown hook to handle Ctrl + C
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.out.println("\nShutting down... Cleaning up resources.");
+            try {
+                
+                if (socket != null && !socket.isClosed()) {
+                    System.out.println("Closing socket...");
+                    socket.close(); // Close socket on shutdown
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            System.out.println("Goodbye!");
+        }));
         RulerClient client = new RulerClient();
         client.run();
     }
@@ -30,6 +45,8 @@ public class RulerClient {
 
             String menuOption;
             String response;
+            System.out.println("Welcome to the Ruler Program");
+
             do {
                 displayMenu();
                 menuOption = scanner.nextLine(); // Encrypt user input
@@ -42,8 +59,7 @@ public class RulerClient {
                     case "2":
                         // For options "1" and "2", just send the option and receive a response
                         send(menuOption); // Send the selected menu option to the server
-                        response = receive(); // Receive the response from the server
-                        System.out.println("Server Response: " + response);
+                        System.out.println(receive()); // Receive the response from the server
                         break;
                     case "3":
                     case "4":
@@ -52,8 +68,7 @@ public class RulerClient {
                         System.out.println("Enter the message:");
                         message = scanner.nextLine(); // Get the message input from the user
                         send(message); // Send the message to the server
-                        response = receive(); // Receive the response from the server
-                        System.out.println("Server Response: " + response);
+                        System.out.println(receive()); // Receive the response from the server
                         break;
                     case "5":
                         send(menuOption);
@@ -69,27 +84,27 @@ public class RulerClient {
 
                         } else if ("2".equals(operation)) {
                             System.out.println(receive());
-                            String password = scanner.next();
+                            String password = scanner.nextLine();
                             send(password); // send password to server
                         }
-                        receive();
+                        System.out.println(receive());
                         break;
                     case "6":
                         send(menuOption); // Send the "6" option to start the game on the server
-                        System.out.println("Guess the number between 1 and 100: ");
+                        System.out.println(receive());
 
                         boolean gameOver = false;
-                        while (!gameOver) {
+                        do {
                             int guess = getIntFromUser("Number?"); // Get the user's guess
                             send(String.valueOf(guess)); // Send the guess to the server
 
                             response = receive(); // Receive the server's response
-
+                            System.out.println(response);
                             // Check if the game is over
                             if (response.contains("Congrats") || response.contains("failing")) {
                                 gameOver = true;
                             }
-                        }
+                        }while (!gameOver);
                         break;
                     case "7":
                         send(menuOption);
@@ -98,9 +113,6 @@ public class RulerClient {
                         System.out.println("Invalid response");
                         break;
                 }
-                // if (response == "Invalid option") { // Check the received hash
-                //     System.out.println(response);
-                // }
             } while (!menuOption.equals("7")); // Exit when option 7 is selected
 
         } catch (IOException e) {
@@ -113,7 +125,6 @@ public class RulerClient {
     }
 
     private static void displayMenu() {
-        System.out.println("Welcome to the Ruler Program");
         System.out.println("1. Print out server time (GMT+8)");
         System.out.println("2. Retrieve the Ruler's port number");
         System.out.println("3. War Alert Channel");
@@ -144,7 +155,7 @@ public class RulerClient {
 
     private static String generateHash(String message) throws NoSuchAlgorithmException {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");    //creates a MessageDigest instance for the SHA-256 algorithm
-        byte[] hash = digest.digest(message.getBytes()); // computes the hash of the input string
+        byte[] hash = digest.digest(message.getBytes(StandardCharsets.UTF_8)); // computes the hash of the input string
         StringBuilder hexString = new StringBuilder();  //terates over each byte in the hash byte array
         for (byte b : hash) {
             String hex = Integer.toHexString(0xff & b);
@@ -159,7 +170,7 @@ public class RulerClient {
 
     private static boolean verifyHash(String decryptedMessage, String receivedHash) {
         try {
-            String localHash = generateHash(decryptedMessage);
+            String localHash = generateHash(decryptedMessage.trim());
             return localHash.equals(receivedHash); 
         } catch (NoSuchAlgorithmException e) {
             System.out.println("Hash verification error: " + e.getMessage());
@@ -168,25 +179,20 @@ public class RulerClient {
         }
     }
 
-    private String receive() throws IOException {
+    private String receive() {
 
         try {
             String encryptedResponse = in.readLine(); // Read encrypted response from client
             String responseHash = in.readLine(); // Read hash from client
             String decryptedResponse = decrypt(encryptedResponse);
-            
-            // System.out.println("decrypted message: " + decryptedResponse);
-            // System.out.println("encrypted message: " + encryptedResponse);
-            // System.out.println("response message: " + responseHash);
 
             if (verifyHash(decryptedResponse, responseHash)) { // Check the received hash
-                System.out.println("Server message: " + decryptedResponse);
+                return "Server reply: " + decryptedResponse;
             } else {
-                System.out.println("Error: Message integrity check failed.");
+                return "Error detected! Message integrity check failed.";
             }
-            return decryptedResponse;
-        } catch (IOException e) {
-            throw e;
+        } catch (Exception e) {
+            return "Error in receiving server message.";
         }
     }
 

@@ -1,5 +1,6 @@
 import java.io.*;
 import java.net.*;
+import java.nio.charset.StandardCharsets;
 import java.rmi.Naming;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -15,8 +16,10 @@ public class RulerServer {
     private static final int MULTICAST_SERVER_PORT = 3014;
     private static final int BROADCAST_SERVER_PORT = 4014;
     private ServerSocket serverSocket;
+    private static int numClient;
     
     public RulerServer(int port) throws IOException {
+        numClient = 0;
         serverSocket = new ServerSocket(port);
         System.out.println("Server started on port " + port);
     }
@@ -24,6 +27,7 @@ public class RulerServer {
     // to clientHandler (how to exit? error?)
     public void start() {
         while (true) {
+            System.out.println("Now has " + numClient + " connected to this server...");
             try {
                 // Wait for a client connection
                 Socket clientSocket = serverSocket.accept();
@@ -51,6 +55,7 @@ public class RulerServer {
 
         public ClientHandler(Socket socket) {
             this.socket = socket;
+            numClient++;
             try {
                 this.in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
                 this.out = new PrintWriter(socket.getOutputStream(), true);
@@ -83,45 +88,51 @@ public class RulerServer {
                     if (socket != null) socket.close();
                     if (in != null) in.close();
                     if (out != null) out.close();
+                    broadcast("Ruler is leaving the channel...");
+
+                    numClient--;
+                    System.out.println("Current client online is: " + numClient);
                 } catch (IOException e) {
                     System.out.println("Error closing resources: " + e.getMessage());
+                    e.printStackTrace();
+                }catch(NoSuchAlgorithmException e){
+                    System.out.println("Error broadcasting ruler leaving message" + e.getMessage());
                     e.printStackTrace();
                 }
             }
         }
         
-        private static boolean verifyHash(String decryptedMessage, String receivedHash) {
+        private static boolean verifyHash(String decryptedMessage, String receivedHash) throws NoSuchAlgorithmException {
             try {
                 String localHash = generateHash(decryptedMessage);
                 return localHash.equals(receivedHash);
             } catch (NoSuchAlgorithmException e) {
-                System.out.println("Hash verification error: " + e.getMessage());
-                e.printStackTrace();
-                return false;
+                System.out.println("Hash verification error! " + e.getMessage());
+                throw e;
             }
         }
 
-        private String receive() throws IOException{
+        private String receive(){
             
             try {
                 String encryptedResponse = in.readLine(); // Read encrypted response from client
+                if (encryptedResponse == null) { //if client ctrl c
+                    System.out.println("Client disconnected.");
+                    socket.close();
+                    return null;
+                }
                 String responseHash = in.readLine(); // Read hash from client
                 String decryptedResponse = decrypt(encryptedResponse);
-                System.out.println("decrypted message: " + decryptedResponse);
-                System.out.println("encrypted message: " + encryptedResponse);
-                System.out.println("response message: " + responseHash);
-                if (verifyHash(decryptedResponse, responseHash)) { // Check the received hash
-                    // decryptedResponse = decrypt(encryptedResponse); // Decrypt the response
-                    // System.out.println("Client message: " + decryptedResponse);
-                    return decryptedResponse;
 
+                if (verifyHash(decryptedResponse, responseHash)) { // Check the received hash
+                    return decryptedResponse;
                 } else {
                     System.out.println("Error: Message integrity check failed.");
-                    return "0";
+                    return "Error detected! Message integrity check failed.";
                 }
-
-            } catch (IOException e) {
-                throw e;
+            } catch (Exception e) {
+                System.out.println("Error: Receive function failed.");
+                return "Error in receiving client message.";
             }
         }
 
@@ -142,7 +153,7 @@ public class RulerServer {
 
         private String handleOption(String option) throws Exception {
             String message;
-            System.out.println(option);
+            System.out.println("Client select option:" + option);
             switch (option) {
                 case "1":
                     return "Server time (GMT+8): " + getCurrentTimeGMT8();
@@ -155,15 +166,15 @@ public class RulerServer {
                     message = receive();
                     return multicast(message) ? "Multicast successful" : "Multicast failed";
                 case "5":
-                    return String.valueOf(handleRMI());
+                    return handleRMI();
                 case "6":
                     int result = playGame();
                     if(result == 1){
                         System.out.println("Champagne!");
-                        return "What can I say? Congrats... ";
+                        return "'What can I say? Congrats... '";
                     }else if(result == -1){
-                        System.out.println("gugu");
-                        return "You know... failing in this kind of game... Divide and Conquer";
+                        System.out.println("Server won the game");
+                        return "'You know... failing in this kind of game... Divide and Conquer'";
                     }
                 default:
                     return "Invalid option";
@@ -193,7 +204,7 @@ public class RulerServer {
                 RMIInterface rmiServer = (RMIInterface) Naming.lookup("rmi://localhost:20014/RMIServer");
 
                 // Ask client to choose RMI operation: addition or password complexity
-                send("Choose operation: 1 for Add, 2 for Password Complexity");
+                send("'Choose operation: 1 for Add, 2 for Password Complexity'");
                 String operation = receive();
 
                 if ("1".equals(operation)) {
@@ -204,18 +215,18 @@ public class RulerServer {
                         int num2 = Integer.parseInt(receive());
                         int sum = rmiServer.addNumbers(num1, num2);
                         System.out.println(sum);
-                        return "Sum of " + num1 + " and " + num2 + " is: " + sum;
+                        return "'Sum of " + num1 + " and " + num2 + " is: " + sum + "'";
                     }catch(NumberFormatException e){
                         return "Invalid number input please try again";
                     }
                 } else if ("2".equals(operation)) {
                     // Prompt user for password input
-                    send("Enter password:");
+                    send("'Please give a password for calculation'");
                     String password = receive();
 
                     // Call RMI method for password complexity
                     BigInteger complexity = rmiServer.calculatePasswordComplexity(password);
-                    return "Password complexity is: " + complexity;
+                    return "'Password complexity of " + password + " is: " + complexity + "'";
                 } else {
                     return "Invalid operation selected.";
                 }
@@ -238,7 +249,7 @@ public class RulerServer {
         
         private static String generateHash(String message) throws NoSuchAlgorithmException {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(message.getBytes());
+            byte[] hash = digest.digest(message.trim().getBytes(StandardCharsets.UTF_8));
             StringBuilder hexString = new StringBuilder();
             for (byte b : hash) {
                 String hex = Integer.toHexString(0xff & b);
@@ -253,20 +264,22 @@ public class RulerServer {
             int max_attempts = 5;
             Random random = new Random();
             int targetNumber = random.nextInt(100) + 1;
-            int attempts = 1;
+            int attempts = 0;
             String received;
-
+            System.out.println("Secret number is "+targetNumber);
+            send("'It's game time! Try guess my secret number! (Hint: the number is between 1 and 100.)'");
             while (attempts < max_attempts) {
                 attempts++;
                 received = receive();
                 try {
                     int guess = Integer.parseInt(received);
-
-                    if (guess < targetNumber) {
-                        send("Try again - too Low");
-                    } else if (guess > targetNumber) {
-                        send("Try again - too High");
-                    } else {
+                    if((guess > 100 || guess < 1) && (attempts < max_attempts)){
+                        send("Did you enter numbers in correct range?");
+                    } else if (guess < targetNumber && attempts < max_attempts) {
+                        send("'Try again - too Low' o(o_o)o");
+                    } else if (guess > targetNumber && attempts < max_attempts) {
+                        send("'Try again - too High' *o*");
+                    } else if(guess == targetNumber) {
                         return 1;
                     }
                 } catch (NumberFormatException e) {
@@ -276,29 +289,10 @@ public class RulerServer {
             return -1;
         }
 
-        // private static void unicast(String args) {
-        //     try (ServerSocket serverSocket = new ServerSocket(UNICAST_SERVER_PORT)) {
-        //         System.out.println("Server is listening on port " + UNICAST_SERVER_PORT);
-
-        //         while (true) {
-        //             Socket socket = serverSocket.accept();
-        //             System.out.println("New client connected");
-
-        //             new ClientHandler(socket).start();
-        //         }
-
-        //     } catch (IOException e) {
-        //         System.out.println("Server exception: " + e.getMessage());
-        //         e.printStackTrace();
-        //     }
-        // }
-
         private static boolean multicast(String message) throws UnknownHostException, SocketException, IOException, NoSuchAlgorithmException {
             // create the socket with multicast port 3014
             DatagramSocket multicastSocket = new DatagramSocket();
-            String encryptedMessage = encrypt(message);
-            String MessageHash = generateHash(message);
-            String sendString = encryptedMessage + "|" + MessageHash;
+            String sendString = udpSend(message);
             InetAddress multicastGroup = InetAddress.getByName("224.0.0.14");
             byte[] buf = sendString.getBytes();
 
@@ -310,13 +304,25 @@ public class RulerServer {
             return true;
         }
 
+        private static String udpSend(String message) throws NoSuchAlgorithmException{
+            try {
+                String encryptedString = encrypt(message);
+                String hashString = generateHash(message);
+                String sendString = encryptedString + "^o^" + hashString;
+                // use longer string as delimiter '^o^' to avoid problem like
+                // a character being caesar cipher to be '|',
+                // making the receiving string invalid (got two '|')
+                return sendString;
+            } catch (NoSuchAlgorithmException e) {
+                throw e;
+            }
+        }
         private static boolean broadcast(String message) throws UnknownHostException, SocketException, IOException, NoSuchAlgorithmException {
             DatagramSocket broadcastSocket = new DatagramSocket();
             broadcastSocket.setBroadcast(true);
             InetAddress broadcastAddr = InetAddress.getByName("255.255.255.255");
-            String encryptedMessage = encrypt(message);
-            String MessageHash = generateHash(message);
-            String sendString = encryptedMessage + "|" + MessageHash;
+            String sendString = udpSend(message);
+
             byte[] buf = sendString.getBytes();
 
             DatagramPacket broadcastPacket = new DatagramPacket(buf, buf.length, broadcastAddr, BROADCAST_SERVER_PORT);
